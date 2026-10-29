@@ -27,5 +27,5 @@ lidawake status   # 状态（或直接 lidawake）
 ## 说明
 
 - 底层是 `pmset -a disablesleep`
-- `on` 会启动合盖灭屏监视；开的时候可能先灭一下屏
+- `on` 会启动合盖灭屏监视；不会马上灭屏，合上盖子时才灭屏
 - 用完请 `lidawake off`，长期开着伤电池、也容易误判合盖行为

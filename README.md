@@ -15,7 +15,7 @@
 
 ## Alfred workflow
 
-文件：[`alfred/合盖不休眠-pmset.alfredworkflow`](alfred/%E5%90%88%E7%9B%96%E4%B8%8D%E4%BC%91%E7%9C%A0-pmset.alfredworkflow)（当前打包版本 **1.1.1**，与本机正在用的安装版一致）
+文件：[`alfred/合盖不休眠-pmset.alfredworkflow`](alfred/%E5%90%88%E7%9B%96%E4%B8%8D%E4%BC%91%E7%9C%A0-pmset.alfredworkflow)（当前打包版本 **1.2.0**，与本机正在用的安装版一致）
 
 双击装进 Alfred 后，敲：
 
@@ -25,7 +25,9 @@
 | `lidawake off` | 关闭：恢复合盖会休眠，并停掉灭屏监视 |
 | `lidawake` | 查状态：SleepDisabled 与灭屏监视是否在跑 |
 
-开的时候可能先灭一下屏，属正常。合上盖子后屏幕应灭，系统保持醒着，agent 接着干。
+`on` 只开启功能，不会马上灭屏，屏幕照常可用；真正合上盖子时才会灭屏，系统保持醒着，agent 接着干。
+
+状态是一行短句，监视运行时间固定显示为「X时X分X秒」，例如：`已开：合盖不休眠，监视已运行 0时2分4秒`。
 
 ### 关于管理员权限（1.1.1）
 
@@ -62,6 +64,8 @@ lidawake status   # 状态（也可直接 lidawake）
 
 行为与 Alfred 版同一套：还是 `pmset disablesleep`，加上合盖灭屏监视。CLI 会优先尝试免密 sudo；不行再弹系统管理员密码框。
 
+监视进程的启动、停止、状态都收在 `lid-display-watch.sh` 里，CLI 与 Alfred 共用同一份逻辑，也可以直接调用：`lid-display-watch.sh launch|stop|status|pids`。pid 文件固定在 `~/.local/state/lidawake/watch.pid`，不依赖 `TMPDIR`；重复 `on` 只会保留一个监视进程。
+
 ## 用完务必 off
 
 `disablesleep` 开着时，机器不会按平时习惯睡。长期挂着伤电池，也容易误判合盖行为——下次合盖发现还在发热，多半是忘了关。
@@ -73,3 +77,15 @@ lidawake status   # 状态（也可直接 lidawake）
 合盖 → 灭屏 → 系统醒着 → agent 继续跑。用完 off。
 
 依赖就是 macOS 的 `pmset`；Alfred 或 CLI，只是少打几行命令。装好后先 `lidawake on` 试一次合盖，确认灭屏且任务还在；再 `lidawake off`，确认合盖又会正常休眠。两头都通了，就可以放心用。
+
+## 更新记录
+
+### v1.2.0
+
+- `on` 不再主动灭屏，只在合盖时才灭屏，开启后可继续正常操作。
+- 修复 Alfred 通知偶发乱码：macOS 自带 bash 3.2 下，`$变量` 后面紧跟全角标点会吞掉首字节，现统一写成 `${变量}`。
+- pid 文件固定到 `~/.local/state/lidawake/`，终端与 Alfred 的环境不同也能互相停掉监视。
+- 监视进程精确匹配，不再用 `pkill -f` 误杀同名命令行；加单实例保护，重复开启不会叠加多个监视。
+- `stop` 会等监视进程真正退出；`on` 会确认监视已经起来才提示成功；`off` 失败时保留监视。
+- 运行时间统一为「X时X分X秒」；Alfred 状态保持短、纯一行。
+- 启动、停止、状态逻辑收进 `lid-display-watch.sh`，CLI 与 Alfred 共用，三处不再各改各的。

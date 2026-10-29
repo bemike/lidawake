@@ -3,8 +3,7 @@
 # Usage: lidawake on | off | status
 set -euo pipefail
 
-VERSION="1.0.0"
-PIDFILE="${TMPDIR:-/tmp}/lidawake-display-watch.pid"
+VERSION="1.2.0"
 
 # Resolve install dir (symlink-safe)
 SOURCE="${BASH_SOURCE[0]}"
@@ -14,11 +13,12 @@ while [ -L "$SOURCE" ]; do
   [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
 done
 ROOT="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+# 监视进程的启动/停止/状态都在 lid-display-watch.sh 里（与 Alfred 共用同一份逻辑）
 WATCH="$ROOT/lid-display-watch.sh"
 
 usage() {
   cat <<USAGE
-lidawake $VERSION — 合盖不休眠（灭屏，系统保持醒着）
+lidawake ${VERSION} — 合盖不休眠（灭屏，系统保持醒着）
 
 用法:
   lidawake on       开启：disablesleep + 合盖灭屏监视
@@ -30,70 +30,57 @@ lidawake $VERSION — 合盖不休眠（灭屏，系统保持醒着）
 USAGE
 }
 
-stop_watch() {
-  if [ -f "$PIDFILE" ]; then
-    old=$(cat "$PIDFILE" 2>/dev/null || true)
-    if [ -n "${old:-}" ]; then
-      kill "$old" 2>/dev/null || true
-    fi
-    rm -f "$PIDFILE"
-  fi
-  pkill -f 'lid-display-watch.sh' 2>/dev/null || true
-  return 0
-}
-
 # Prefer passwordless sudo when already configured; else macOS admin dialog.
 pmset_disablesleep() {
   local val="$1"
   if sudo -n /usr/bin/pmset -a disablesleep "$val" 2>/dev/null; then
     return 0
   fi
-  osascript -e "do shell script \"/usr/bin/pmset -a disablesleep $val\" with administrator privileges" >/dev/null
+  osascript -e "do shell script \"/usr/bin/pmset -a disablesleep ${val}\" with administrator privileges" >/dev/null
 }
 
 cmd_on() {
   if [ ! -x "$WATCH" ]; then
-    echo "找不到灭屏监视脚本: $WATCH" >&2
+    echo "找不到灭屏监视脚本: ${WATCH}" >&2
     exit 1
   fi
   if ! pmset_disablesleep 1; then
     echo "开启失败（可能取消了密码）" >&2
     exit 1
   fi
-  stop_watch
-  /usr/bin/pmset displaysleepnow >/dev/null 2>&1 || true
-  nohup "$WATCH" >/dev/null 2>&1 &
-  echo "已开启：合盖不休眠，屏幕会关"
+  "$WATCH" stop
+  if ! "$WATCH" launch; then
+    echo "监视程序没起来（SleepDisabled 已开，合盖不会自动灭屏）；请重试 lidawake on，或 lidawake off" >&2
+    exit 1
+  fi
+  echo "已开启：合盖不休眠"
 }
 
 cmd_off() {
-  local ok=0
   if pmset_disablesleep 0; then
-    ok=1
-  fi
-  stop_watch
-  if [ "$ok" -eq 1 ]; then
+    if [ -x "$WATCH" ]; then "$WATCH" stop; fi
     echo "已关闭：恢复合盖会休眠"
   else
-    echo "关闭失败（可能取消了密码）；监视进程已尽量停下" >&2
+    # 没关成功就保留监视，免得 SleepDisabled=1 时合盖屏幕不灭
+    echo "关闭失败（可能取消了密码）；监视保留，请重试 lidawake off" >&2
     exit 1
   fi
 }
 
 cmd_status() {
-  local val watch
-  val=$(/usr/bin/pmset -g 2>/dev/null | awk '/SleepDisabled/{print $2; exit}')
-  watch="否"
-  if pgrep -f 'lid-display-watch.sh' >/dev/null 2>&1; then
-    watch="是"
+  local line last
+  if [ ! -x "$WATCH" ]; then
+    echo "状态未知：找不到监视脚本 ${WATCH}"
+    return 0
   fi
-  if [ "$val" = "1" ]; then
-    echo "当前：合盖不休眠已开（SleepDisabled=1），灭屏监视=$watch"
-  elif [ "$val" = "0" ]; then
-    echo "当前：合盖会休眠（SleepDisabled=0），灭屏监视=$watch"
-  else
-    echo "当前：SleepDisabled=${val:-未知}，灭屏监视=$watch"
-  fi
+  line=$("$WATCH" status)
+  echo "${line}"
+  case "$line" in
+    已开，但监视没在跑*)
+      last=$(tail -n 1 "$HOME/Library/Logs/lidawake.log" 2>/dev/null || true)
+      if [ -n "$last" ]; then echo "日志最后一行: ${last}"; fi
+      ;;
+  esac
 }
 
 main() {
@@ -105,7 +92,7 @@ main() {
     -h|--help|help) usage ;;
     -v|--version) echo "lidawake $VERSION" ;;
     *)
-      echo "未知参数: $cmd" >&2
+      echo "未知参数: ${cmd}" >&2
       usage >&2
       exit 2
       ;;
